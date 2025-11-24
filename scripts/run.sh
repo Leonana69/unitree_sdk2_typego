@@ -12,6 +12,7 @@ else
     echo "Warning: No .env file found in ${SCRIPT_DIR}"
 fi
 
+sleep 10
 echo "Starting background services..."
 
 "${SCRIPT_DIR}/video_forward.sh" &

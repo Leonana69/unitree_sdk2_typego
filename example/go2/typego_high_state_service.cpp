@@ -7,19 +7,23 @@
 #include <chrono>
 #include <iostream>
 #include <vector>
-#include <chrono>
-#include <mutex>
+#include <mutex> // Required for thread safety
+#include <atomic>
 
 #include <unitree/robot/channel/channel_subscriber.hpp>
 #include <unitree/idl/go2/SportModeState_.hpp>
+
 #define TOPIC_HIGHSTATE "rt/sportmodestate"
 using namespace unitree::common;
 using namespace unitree::robot;
 
 int udp_socket;
 std::atomic<bool> client_ready(false);
+
+// GLOBAL RESOURCES
 sockaddr_in client_addr;
 socklen_t client_addr_len = sizeof(client_addr);
+std::mutex client_mutex; // [FIX] Mutex to protect client_addr
 
 void WaitForNextClient() {
     std::thread([] {
@@ -28,18 +32,28 @@ void WaitForNextClient() {
         socklen_t latest_client_len = sizeof(latest_client);
 
         while (true) {
+            // Blocking call
             int n = recvfrom(udp_socket, buf, sizeof(buf), 0,
                              (sockaddr*)&latest_client, &latest_client_len);
             if (n > 0) {
-                // Update the global client address atomically
-                std::memcpy(&client_addr, &latest_client, sizeof(sockaddr_in));
-                client_addr_len = latest_client_len;
+                // [FIX] Lock before writing to global address
+                {
+                    std::lock_guard<std::mutex> lock(client_mutex);
+                    std::memcpy(&client_addr, &latest_client, sizeof(sockaddr_in));
+                    client_addr_len = latest_client_len;
+                }
+
+                // Logging (inet_ntoa is okay here inside the lock context visually, 
+                // but better to convert to string if you want to be 100% safe)
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(latest_client.sin_addr), ip_str, INET_ADDRSTRLEN);
+
                 if (!client_ready.exchange(true)) {
                     printf("[UDP] First client connected from %s:%d\n",
-                           inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                           ip_str, ntohs(latest_client.sin_port));
                 } else {
                     printf("[UDP] Switched to new client %s:%d\n",
-                           inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                           ip_str, ntohs(latest_client.sin_port));
                 }
             }
         }
@@ -69,6 +83,8 @@ void InitUDPServer(uint16_t port) {
 
 void sendtoClient(const uint8_t* data, size_t len) {
     if (client_ready.load()) {
+        // [FIX] Lock before reading global address
+        std::lock_guard<std::mutex> lock(client_mutex);
         sendto(udp_socket, data, len, 0, (sockaddr*)&client_addr, client_addr_len);
     }
 }
@@ -76,15 +92,18 @@ void sendtoClient(const uint8_t* data, size_t len) {
 void _HighStateHandler(const void *message) {
     using namespace std::chrono;
     static auto last_send_time = steady_clock::now();
+    
+    // Throttle logic
     auto now = steady_clock::now();
     if (duration_cast<milliseconds>(now - last_send_time).count() < 20) {
-        return;  // Skip if less than 20ms since last send
+        return;
     }
     last_send_time = now;
 
     const auto* high_state = static_cast<const unitree_go::msg::dds_::SportModeState_*>(message);
 
     float data[13];
+    // ... (Your data population logic remains the same) ...
     data[0] = high_state->position()[0];
     data[1] = high_state->position()[1];
     data[2] = high_state->position()[2];
@@ -99,19 +118,16 @@ void _HighStateHandler(const void *message) {
     data[11] = high_state->imu_state().gyroscope()[1];
     data[12] = high_state->imu_state().gyroscope()[2];
 
-    // printf("Position: %f, %f, %f\n", data[0], data[1], data[2]);
-    // printf("IMU quaternion: %f, %f, %f, %f\n", data[3], data[4], data[5], data[6]);
-
-    // sendto(udp_socket, data, sizeof(data), 0, (sockaddr*)&target_addr, sizeof(target_addr));
     sendtoClient((uint8_t *)data, sizeof(data));
 };
 
 int main(int argc, const char *argv[]) {
     InitUDPServer(8889);
 
-    // init go2
     unitree::robot::ChannelFactory::Instance()->Init(0, "eth0");
-    unitree_go::msg::dds_::SportModeState_ high_state{}; // default init
+    
+    // [CLEANUP] Removed unused stack variable 'high_state'
+    
     unitree::robot::ChannelSubscriberPtr<unitree_go::msg::dds_::SportModeState_> suber;
     suber.reset(new unitree::robot::ChannelSubscriber<unitree_go::msg::dds_::SportModeState_>(TOPIC_HIGHSTATE));
     suber->InitChannel(&_HighStateHandler, 1);

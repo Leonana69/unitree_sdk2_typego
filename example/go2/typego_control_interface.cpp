@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
     crow::SimpleApp app;
 
     CROW_ROUTE(app, "/")([](){
-        return "Go2 is ready!";
+        return "Go2 control interface is ready!";
     });
 
     // Control API route

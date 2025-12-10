@@ -27,6 +27,9 @@ target_link_libraries(typego_control_interface unitree_sdk2)
 add_executable(typego_high_state_service typego_high_state_service.cpp)
 target_link_libraries(typego_high_state_service unitree_sdk2)
 
+add_executable(typego_audio_interface typego_audio_interface.cpp)
+target_link_libraries(typego_audio_interface unitree_sdk2 asound)
+
 add_executable(typego_livox_service typego_livox_service.cpp)
 
 # Include Livox SDK headers

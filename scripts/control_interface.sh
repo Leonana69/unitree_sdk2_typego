@@ -9,3 +9,4 @@ done
 
 echo "Starting control interface..."
 ${SCRIPT_DIR}/../build/bin/typego_control_interface &
+${SCRIPT_DIR}/../build/bin/typego_audio_interface &

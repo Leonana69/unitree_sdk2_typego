@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <alsa/asoundlib.h>
 #include <iostream>
+#include <cstring>
 
 enum class ExecutionStatus {
     SUCCESS,
@@ -125,23 +126,35 @@ bool playWav(const char* filename, int card, int device) {
     std::cout << "  Bits per sample: " << bitsPerSample << std::endl;
     std::cout << "  Byte rate: " << byteRate << " bytes/sec" << std::endl;
     
-    // Open PCM device
+    // Open PCM device - prioritize devices with rate conversion support
     snd_pcm_t *pcm_handle;
-    char pcm_name[32];
-    sprintf(pcm_name, "plughw:%d,%d", card, device);
+    char pcm_name[64];
+    int err;
     
-    if (snd_pcm_open(&pcm_handle, pcm_name, SND_PCM_STREAM_PLAYBACK, 0) < 0) {
-        std::cerr << "Cannot open audio device: " << pcm_name << std::endl;
+    // Try plughw first (has rate conversion built-in via plug plugin)
+    // This should work even if hardware is busy, as it uses software conversion
+    sprintf(pcm_name, "plughw:%d,%d", card, device);
+    err = snd_pcm_open(&pcm_handle, pcm_name, SND_PCM_STREAM_PLAYBACK, 0);
+    
+    // Fallback to default device (usually has rate conversion via plug plugin)
+    if (err < 0) {
+        sprintf(pcm_name, "default");
+        err = snd_pcm_open(&pcm_handle, pcm_name, SND_PCM_STREAM_PLAYBACK, 0);
+    }
+    
+    // Last resort: try dmix (software mixing, but may need manual rate conversion)
+    if (err < 0) {
+        sprintf(pcm_name, "dmix:CARD=%d,DEV=%d", card, device);
+        err = snd_pcm_open(&pcm_handle, pcm_name, SND_PCM_STREAM_PLAYBACK, 0);
+    }
+    
+    if (err < 0) {
+        std::cerr << "Cannot open audio device. Tried dmix, plughw, and default. Error: " 
+                  << snd_strerror(err) << std::endl;
         return false;
     }
     
-    // Configure PCM with WAV file parameters
-    snd_pcm_hw_params_t *params;
-    snd_pcm_hw_params_alloca(&params);
-    snd_pcm_hw_params_any(pcm_handle, params);
-    
-    // Set parameters from WAV file
-    snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    std::cout << "Opened audio device: " << pcm_name << std::endl;
     
     // Set format based on bits per sample
     snd_pcm_format_t format;
@@ -159,32 +172,42 @@ bool playWav(const char* filename, int card, int device) {
         return false;
     }
     
-    snd_pcm_hw_params_set_format(pcm_handle, params, format);
-    snd_pcm_hw_params_set_channels(pcm_handle, params, numChannels);
+    // Use snd_pcm_set_params which handles rate conversion automatically with plug plugin
+    // This ensures correct playback speed even when hardware rate differs
+    // Latency: 50ms (50000 microseconds) - reasonable for real-time playback
+    unsigned int latency_us = 50000;
+    // Enable soft resampling (1) to allow rate conversion when hardware doesn't match
+    // The plug plugin will handle conversion, but soft resampling provides fallback
+    err = snd_pcm_set_params(pcm_handle, format,
+                             SND_PCM_ACCESS_RW_INTERLEAVED,
+                             numChannels,
+                             sampleRate,  // Request exact rate - will be converted if needed
+                             1,           // Enable soft resampling for rate conversion
+                             latency_us);
     
-    unsigned int rate = sampleRate;
-    int dir = 0;
-    snd_pcm_hw_params_set_rate_near(pcm_handle, params, &rate, &dir);
-    
-    if (rate != sampleRate) {
-        std::cerr << "Warning: Requested rate " << sampleRate 
-                  << "Hz, got " << rate << "Hz" << std::endl;
-    }
-    
-    // Apply parameters
-    if (snd_pcm_hw_params(pcm_handle, params) < 0) {
-        std::cerr << "Cannot set parameters" << std::endl;
+    if (err < 0) {
+        std::cerr << "Cannot set PCM parameters: " << snd_strerror(err) << std::endl;
         snd_pcm_close(pcm_handle);
         return false;
     }
     
-    // Get actual parameters
-    snd_pcm_hw_params_get_channels(params, &numChannels);
-    snd_pcm_hw_params_get_rate(params, &rate, &dir);
+    // Get actual parameters to verify
+    snd_pcm_hw_params_t *params;
+    snd_pcm_hw_params_alloca(&params);
+    snd_pcm_hw_params_current(pcm_handle, params);
+    
+    unsigned int actual_rate;
+    unsigned int actual_channels;
+    int dir;
+    snd_pcm_hw_params_get_rate(params, &actual_rate, &dir);
+    snd_pcm_hw_params_get_channels(params, &actual_channels);
     
     std::cout << "ALSA configured:" << std::endl;
-    std::cout << "  Channels: " << numChannels << std::endl;
-    std::cout << "  Sample rate: " << rate << " Hz" << std::endl;
+    std::cout << "  Requested: " << numChannels << " channels, " << sampleRate << " Hz" << std::endl;
+    std::cout << "  Actual: " << actual_channels << " channels, " << actual_rate << " Hz" << std::endl;
+    
+    // Update numChannels for frame calculations
+    numChannels = actual_channels;
     
     // Prepare PCM
     if (snd_pcm_prepare(pcm_handle) < 0) {

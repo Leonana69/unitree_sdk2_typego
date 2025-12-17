@@ -66,7 +66,7 @@ void InitUDPServer(uint16_t port) {
         close(udp_socket);
         return;
     }
-
+    printf("UDPServer initialized on port %d\n", port);
     WaitForNextClient();
 }
 

@@ -32,4 +32,5 @@ GSTREAMER_DEPTH_PORT=${GSTREAMER_DEPTH_PORT:-1723}
 #   ! udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0
 
 #### Depth Camera D435i Streaming
-python3 ${SCRIPT_DIR}/d435i.py
+# Use -u flag for unbuffered output so print statements appear in logs immediately
+python3 -u ${SCRIPT_DIR}/d435i.py

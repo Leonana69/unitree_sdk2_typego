@@ -4,4 +4,4 @@
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 echo "Starting lidar service..."
-${SCRIPT_DIR}/../build/bin/typego_livox_service ${SCRIPT_DIR}/mid360_config.json &
+${SCRIPT_DIR}/../build/bin/typego_livox_full_service ${SCRIPT_DIR}/mid360_config.json &

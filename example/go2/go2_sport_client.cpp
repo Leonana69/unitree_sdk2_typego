@@ -63,7 +63,9 @@ public:
     case balance_stand:                  // 1. Balance stand (controlled by dBodyHeight + rpy)
       // sport_client.Euler(0.1, 0.2, 0.3); // roll, pitch, yaw
       // sport_client.BodyHeight(0.0);      // relative height [-0.18~0.03]
+      printf("Balance stand\n");
       sport_client.BalanceStand();
+      printf("Balance stand end\n");
       break;
 
     case velocity_move: // 2. target velocity walking (controlled by velocity + yawSpeed)

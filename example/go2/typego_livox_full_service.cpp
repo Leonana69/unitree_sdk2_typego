@@ -131,6 +131,28 @@ struct PointCloudPacketHeader {
     uint16_t point_count;
     // OptimizedPoint[] follows immediately after header
 };
+
+// IMU data structure (packed for network transmission)
+struct ImuData {
+    float acc_x;
+    float acc_y;
+    float acc_z;
+    float gyro_x;
+    float gyro_y;
+    float gyro_z;
+};
+
+// Packet header structure for IMU data transmission
+struct ImuPacketHeader {
+    uint16_t sequence_id;
+    uint32_t timestamp_sec;
+    uint32_t timestamp_nsec;
+    uint32_t handle;
+    uint8_t dev_type;
+    uint8_t data_type;  // Will contain IMU data type from Livox SDK
+    uint16_t imu_count;  // Number of IMU samples in this packet
+    // ImuData[] follows immediately after header
+};
 #pragma pack(pop)
 
 void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket* data, void* client_data) {
@@ -211,6 +233,69 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         
         point_offset += points_in_packet;
         remaining_points -= points_in_packet;
+    }
+}
+
+void ImuDataCallback(uint32_t handle, const uint8_t dev_type,  LivoxLidarEthernetPacket* data, void* client_data) {
+    if (data == nullptr || !client_ready.load()) {
+        return;
+    }
+    
+    // Use MTU size for optimal network performance
+    constexpr size_t MAX_UDP_PAYLOAD = 1472;
+    constexpr size_t HEADER_SIZE = sizeof(ImuPacketHeader);
+    constexpr size_t IMU_DATA_SIZE = sizeof(ImuData);
+    constexpr size_t MAX_IMU_PER_PACKET = (MAX_UDP_PAYLOAD - HEADER_SIZE) / IMU_DATA_SIZE;
+    
+    static thread_local uint16_t imu_seq_id = 0;
+    uint8_t packet[MAX_UDP_PAYLOAD];
+    
+    uint32_t total_imu_samples = data->dot_num;
+    LivoxLidarImuRawPoint* src_imu = (LivoxLidarImuRawPoint*)data->data;
+    
+    // Get current timestamp (high precision)
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
+    auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(duration - seconds);
+    
+    uint32_t remaining_samples = total_imu_samples;
+    uint32_t imu_offset = 0;
+    
+    // Send all IMU samples in multiple packets if needed
+    while (remaining_samples > 0) {
+        uint32_t samples_in_packet = (remaining_samples > MAX_IMU_PER_PACKET) 
+                                     ? MAX_IMU_PER_PACKET 
+                                     : remaining_samples;
+        
+        // Build IMU packet header
+        ImuPacketHeader* header = (ImuPacketHeader*)packet;
+        header->sequence_id = htons(++imu_seq_id);
+        header->timestamp_sec = htonl(seconds.count());
+        header->timestamp_nsec = htonl(nanoseconds.count());
+        header->handle = htonl(handle);
+        header->dev_type = dev_type;
+        header->data_type = data->data_type;  // Preserve original IMU data type
+        header->imu_count = htons(samples_in_packet);
+        
+        // Copy IMU data (convert from LivoxLidarImuRawPoint to ImuData)
+        ImuData* imu_data = (ImuData*)(packet + HEADER_SIZE);
+        for (uint32_t i = 0; i < samples_in_packet; ++i) {
+            const LivoxLidarImuRawPoint& src = src_imu[imu_offset + i];
+            imu_data[i].acc_x = src.acc_x;
+            imu_data[i].acc_y = src.acc_y;
+            imu_data[i].acc_z = src.acc_z;
+            imu_data[i].gyro_x = src.gyro_x;
+            imu_data[i].gyro_y = src.gyro_y;
+            imu_data[i].gyro_z = src.gyro_z;
+        }
+        
+        // Send packet immediately (non-blocking, low latency)
+        size_t packet_size = HEADER_SIZE + (samples_in_packet * IMU_DATA_SIZE);
+        sendtoClient(packet, packet_size);
+        
+        imu_offset += samples_in_packet;
+        remaining_samples -= samples_in_packet;
     }
 }
 
@@ -312,7 +397,7 @@ int main(int argc, const char *argv[]) {
     
     // OPTIONAL, to get imu data via 'ImuDataCallback'
     // some lidar types DO NOT contain an imu component
-    // SetLivoxLidarImuDataCallback(ImuDataCallback, nullptr);
+    SetLivoxLidarImuDataCallback(ImuDataCallback, nullptr);
     
     // SetLivoxLidarInfoCallback(LivoxLidarPushMsgCallback, nullptr);
     

@@ -3,7 +3,6 @@ import numpy as np
 import cv2, os
 import gi
 import time
-from collections import deque
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 Gst.init(None)
@@ -177,64 +176,85 @@ def stream_realsense():
     align = rs.align(align_to)
     hole_filling = rs.hole_filling_filter()
 
-    frame_buffers = [deque(maxlen=10), deque(maxlen=10)]
     max_time_diff_ms = 40  # ~1 frame at 30fps
     frame_count = 0
+    target_frame_time = 1.0 / PUBLISH_RATE  # Time per frame at publish rate
+    last_frame_time = time.time()
 
     try:
         while True:
-            # Collect frames from both cameras into buffers
-            for i, pipeline in enumerate(pipelines):
+            # Rate limiting: ensure we don't process faster than PUBLISH_RATE
+            current_time = time.time()
+            elapsed = current_time - last_frame_time
+            if elapsed < target_frame_time:
+                time.sleep(target_frame_time - elapsed)
+            
+            # Collect frames from all cameras using wait_for_frames (more efficient)
+            best_match = []
+            best_time_diff = float('inf')
+            
+            if num_cameras > 1:
+                # For multiple cameras, try to get synchronized frames
+                frames_list = []
+                all_ready = True
+                for i, pipeline in enumerate(pipelines):
+                    try:
+                        # Use wait_for_frames with short timeout to avoid blocking too long
+                        frames = pipeline.wait_for_frames(timeout_ms=100)
+                        if frames:
+                            frames_list.append(frames)
+                        else:
+                            all_ready = False
+                            break
+                    except:
+                        all_ready = False
+                        break
+                
+                if all_ready and len(frames_list) == num_cameras:
+                    # Check if frames are synchronized (simple check with first two)
+                    if len(frames_list) >= 2:
+                        time_diff = abs(frames_list[0].get_timestamp() - frames_list[1].get_timestamp())
+                        if time_diff < max_time_diff_ms:
+                            best_match = frames_list
+                            best_time_diff = time_diff
+                    else:
+                        best_match = frames_list
+                        best_time_diff = 0
+            else:
+                # Single camera - just wait for frames
                 try:
-                    frames = pipeline.poll_for_frames()
+                    frames = pipelines[0].wait_for_frames(timeout_ms=100)
                     if frames:
-                        frame_buffers[i].append(frames)
+                        best_match = [frames]
+                        best_time_diff = 0
                 except:
                     pass
 
-            best_match = []
-            best_time_diff = float('inf')
-            if num_cameras > 1:
-                for frames0 in frame_buffers[0]:
-                    for frames1 in frame_buffers[1]:
-                        time_diff = abs(frames0.get_timestamp() - frames1.get_timestamp())
-                        if time_diff < best_time_diff:
-                            best_time_diff = time_diff
-                            best_match = [frames0, frames1]
-            else:
-                best_match.append(frame_buffers[0][-1])
-                best_time_diff = 0
+            if not best_match or best_time_diff >= max_time_diff_ms:
+                # No valid frames available, sleep briefly to avoid busy-waiting
+                time.sleep(0.001)  # 1ms sleep to prevent CPU spinning
+                continue
 
-            if best_match and best_time_diff < max_time_diff_ms:
-                frame_count += 1
-
-                color_images = []
-                depth_images = []
-            
-                # Get frames from all cameras
-                all_frames_valid = True
-                for i, frames in enumerate(best_match):
-                    aligned_frames = align.process(frames)
-                    color_frame = aligned_frames.get_color_frame()
-                    depth_frame = aligned_frames.get_depth_frame()
-                    depth_frame = hole_filling.process(depth_frame)
-
-                    if frames in frame_buffers[i]:
-                        frame_buffers[i].remove(frames)
-                    
-                    if not color_frame or not depth_frame:
-                        all_frames_valid = False
-                        break
-
-                    # Convert to numpy arrays
-                    color_images.append(np.asanyarray(color_frame.get_data()))
-                    depth_images.append(np.asanyarray(depth_frame.get_data()))
-
+            color_images = []
+            depth_images = []
+        
+            # Get frames from all cameras
+            all_frames_valid = True
+            for i, frames in enumerate(best_match):
+                aligned_frames = align.process(frames)
+                color_frame = aligned_frames.get_color_frame()
+                depth_frame = aligned_frames.get_depth_frame()
+                depth_frame = hole_filling.process(depth_frame)
                 
-                
-                if not all_frames_valid:
-                    continue
-            else:
+                if not color_frame or not depth_frame:
+                    all_frames_valid = False
+                    break
+
+                # Convert to numpy arrays (use get_data() directly for better performance)
+                color_images.append(np.asanyarray(color_frame.get_data()))
+                depth_images.append(np.asanyarray(depth_frame.get_data()))
+
+            if not all_frames_valid:
                 continue
 
             # Stack images if multiple cameras, otherwise use single image
@@ -273,6 +293,10 @@ def stream_realsense():
             buf2.pts = buf2.dts = timestamp
             buf2.duration = Gst.util_uint64_scale_int(1, Gst.SECOND, PUBLISH_RATE)
             depth_src.emit("push-buffer", buf2)
+
+            # Update frame time for rate limiting
+            last_frame_time = time.time()
+            frame_count += 1
 
             # Optional: preview locally
             # cv2.imshow("Color", color_combined)

@@ -22,4 +22,6 @@ echo "Starting background services..."
 "${SCRIPT_DIR}/high_state_service.sh" &
 
 echo "All services launched. Waiting for them to exit..."
-wait
+
+# sleep forever
+sleep infinity

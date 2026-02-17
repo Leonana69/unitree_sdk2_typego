@@ -17,11 +17,24 @@ echo "Forwarding video stream to multicast IP ${MULTICAST_IP}:${GSTREAMER_RGB_PO
 
 #### Binocular camera forwarding
 ### RFC 2435 encodes dimensions as width/8 and height/8 in a single byte each, giving a maximum of 2040x2040.
+### Forward both cameras, the image size cannot exceed 2040x2040.
+# gst-launch-1.0 v4l2src device=/dev/video2 do-timestamp=true ! \
+#     image/jpeg,width=1600,height=600,framerate=15/1 ! \
+#     mppjpegdec ! \
+#     mpph264enc rc-mode=cbr bps=8000000 ! \
+#     h264parse ! \
+#     rtph264pay config-interval=1 ! \
+#     udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
+
+### Only forward right camera, the image size is 1280x720
 gst-launch-1.0 v4l2src device=/dev/video2 do-timestamp=true ! \
-    image/jpeg,width=1600,height=600,framerate=15/1 ! \
+    image/jpeg,width=2560,height=720,framerate=15/1 ! \
     mppjpegdec ! \
-    mpph264enc rc-mode=cbr bps=8000000 ! \
+    videocrop right=1280 ! \
+    queue max-size-buffers=2 leaky=downstream ! \
+    mpph264enc rc-mode=cbr bps=4000000 zero-copy-pkt=true gop=15 ! \
     h264parse ! \
+    queue max-size-buffers=2 leaky=downstream ! \
     rtph264pay config-interval=1 ! \
     udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
 

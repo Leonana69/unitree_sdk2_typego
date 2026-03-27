@@ -53,3 +53,6 @@ gst-launch-1.0 v4l2src device=/dev/video2 do-timestamp=true ! \
 #### Depth Camera D435i Streaming
 # Use -u flag for unbuffered output so print statements appear in logs immediately
 # python3 -u ${SCRIPT_DIR}/d435i.py
+
+
+# gst-launch-1.0 v4l2src device=/dev/video2 do-timestamp=true ! image/jpeg,width=2560,height=720,framerate=15/1 ! mppjpegdec ! videocrop right=1280 ! queue max-size-buffers=2 leaky=downstream ! mpph264enc rc-mode=cbr bps=4000000 zero-copy-pkt=true gop=15 ! h264parse ! queue max-size-buffers=2 leaky=downstream ! rtph264pay config-interval=1 ! tee name=t t. ! queue ! udpsink host=230.1.1.2 port=1722 auto-multicast=true multicast-iface=wlan0 sync=false t. ! queue ! udpsink host=192.168.0.206 port=46655 sync=false

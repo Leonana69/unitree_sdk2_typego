@@ -10,7 +10,6 @@
 #include <chrono>
 #include <iostream>
 #include <vector>
-#include <chrono>
 #include <mutex>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -192,12 +191,12 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
     uint32_t total_points = data->dot_num;
     LivoxLidarCartesianHighRawPoint* src_pts = (LivoxLidarCartesianHighRawPoint*)data->data;
     
-    // Get current timestamp (high precision)
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-    auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(duration - seconds);
-    
+    // Use the LiDAR's own hardware timestamp for precise timing
+    uint64_t lidar_timestamp;
+    memcpy(&lidar_timestamp, data->timestamp, sizeof(uint64_t));
+    uint32_t ts_sec  = (uint32_t)(lidar_timestamp / 1000000000ULL);
+    uint32_t ts_nsec = (uint32_t)(lidar_timestamp % 1000000000ULL);
+
     uint32_t remaining_points = total_points;
     uint32_t point_offset = 0;
     
@@ -210,8 +209,8 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         // Build packet header
         PointCloudPacketHeader* header = (PointCloudPacketHeader*)packet;
         header->sequence_id = htons(++seq_id);
-        header->timestamp_sec = htonl(seconds.count());
-        header->timestamp_nsec = htonl(nanoseconds.count());
+        header->timestamp_sec = htonl(ts_sec);
+        header->timestamp_nsec = htonl(ts_nsec);
         header->handle = htonl(handle);
         header->dev_type = dev_type;
         header->data_type = data->data_type;
@@ -253,12 +252,12 @@ void ImuDataCallback(uint32_t handle, const uint8_t dev_type,  LivoxLidarEtherne
     uint32_t total_imu_samples = data->dot_num;
     LivoxLidarImuRawPoint* src_imu = (LivoxLidarImuRawPoint*)data->data;
     
-    // Get current timestamp (high precision)
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-    auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(duration - seconds);
-    
+    // Use the LiDAR's own hardware timestamp for precise timing
+    uint64_t lidar_timestamp;
+    memcpy(&lidar_timestamp, data->timestamp, sizeof(uint64_t));
+    uint32_t ts_sec  = (uint32_t)(lidar_timestamp / 1000000000ULL);
+    uint32_t ts_nsec = (uint32_t)(lidar_timestamp % 1000000000ULL);
+
     uint32_t remaining_samples = total_imu_samples;
     uint32_t imu_offset = 0;
     
@@ -271,8 +270,8 @@ void ImuDataCallback(uint32_t handle, const uint8_t dev_type,  LivoxLidarEtherne
         // Build IMU packet header
         ImuPacketHeader* header = (ImuPacketHeader*)packet;
         header->sequence_id = htons(++imu_seq_id);
-        header->timestamp_sec = htonl(seconds.count());
-        header->timestamp_nsec = htonl(nanoseconds.count());
+        header->timestamp_sec = htonl(ts_sec);
+        header->timestamp_nsec = htonl(ts_nsec);
         header->handle = htonl(handle);
         header->dev_type = dev_type;
         header->data_type = data->data_type;  // Preserve original IMU data type

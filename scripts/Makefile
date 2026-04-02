@@ -1,9 +1,11 @@
 .PHONY: restart start stop log port
 
 restart:
+	$(if $(CAST_IP), systemctl set-environment CAST_IP=$(CAST_IP),)
 	systemctl restart mystartup.service
 
 start:
+	$(if $(CAST_IP), systemctl set-environment CAST_IP=$(CAST_IP),)
 	systemctl start mystartup.service
 
 stop:

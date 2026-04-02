@@ -3,14 +3,14 @@
 # Get directory of this script
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-1}
-# MULTICAST_IP="230.1.1.${ROS_DOMAIN_ID}"
-MULTICAST_IP="192.168.0.229"
+ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-2}
+# CAST_IP="230.1.1.${ROS_DOMAIN_ID}"
+CAST_IP=${CAST_IP:-"230.1.1.${ROS_DOMAIN_ID}"}
 GSTREAMER_RGB_PORT=${GSTREAMER_RGB_PORT:-1722}
 GSTREAMER_DEPTH_PORT=${GSTREAMER_DEPTH_PORT:-1723}
 DEVICE=$(v4l2-ctl --list-devices 2>/dev/null | awk '/3D USB Camera/{found=1; next} found && /\/dev\/video/{match($0, /video[0-9]+/); print substr($0, RSTART, RLENGTH); exit}')
 
-echo "Forwarding video stream to multicast IP ${MULTICAST_IP}:${GSTREAMER_RGB_PORT}"
+echo "Forwarding video stream to multicast IP ${CAST_IP}:${GSTREAMER_RGB_PORT}"
 
 # while ! pgrep -f '/unitree/module/video_hub/videohub'; do
 #     echo "Wait for video_hub to start..."
@@ -36,7 +36,7 @@ done
 #     mpph264enc rc-mode=cbr bps=8000000 ! \
 #     h264parse ! \
 #     rtph264pay config-interval=1 ! \
-#     udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
+#     udpsink host=${CAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
 
 ### Only forward right camera, the image size is 1280x720
 gst-launch-1.0 v4l2src device=/dev/${DEVICE} do-timestamp=true ! \
@@ -48,19 +48,19 @@ gst-launch-1.0 v4l2src device=/dev/${DEVICE} do-timestamp=true ! \
     h264parse ! \
     queue max-size-buffers=2 leaky=downstream ! \
     rtph264pay config-interval=1 ! \
-    udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
+    udpsink host=${CAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0 sync=false
 
 #### Go2 native camera forwarding
-# echo "Forwarding Go2 camera stream to multicast IP ${MULTICAST_IP}:${GSTREAMER_RGB_PORT}"
+# echo "Forwarding Go2 camera stream to multicast IP ${CAST_IP}:${GSTREAMER_RGB_PORT}"
 # gst-launch-1.0 -v \
 #   udpsrc address=230.1.1.1 port=1720 multicast-iface=eth0 \
-#   ! udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0
+#   ! udpsink host=${CAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0
 
 # gst-launch-1.0 -v \
 #   udpsrc address=230.1.1.1 port=1720 multicast-iface=eth0 \
 #   ! application/x-rtp, media=video, encoding-name=H264 \
 #   ! queue \
-#   ! udpsink host=${MULTICAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0
+#   ! udpsink host=${CAST_IP} port=${GSTREAMER_RGB_PORT} auto-multicast=true multicast-iface=wlan0
 
 #### Depth Camera D435i Streaming
 # Use -u flag for unbuffered output so print statements appear in logs immediately

@@ -4,10 +4,11 @@
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-1}
-MULTICAST_IP="230.1.1.${ROS_DOMAIN_ID}"
+# MULTICAST_IP="230.1.1.${ROS_DOMAIN_ID}"
+MULTICAST_IP="192.168.0.229"
 GSTREAMER_RGB_PORT=${GSTREAMER_RGB_PORT:-1722}
 GSTREAMER_DEPTH_PORT=${GSTREAMER_DEPTH_PORT:-1723}
-DEVICE=video1
+DEVICE=$(v4l2-ctl --list-devices 2>/dev/null | awk '/3D USB Camera/{found=1; next} found && /\/dev\/video/{match($0, /video[0-9]+/); print substr($0, RSTART, RLENGTH); exit}')
 
 echo "Forwarding video stream to multicast IP ${MULTICAST_IP}:${GSTREAMER_RGB_PORT}"
 

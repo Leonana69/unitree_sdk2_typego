@@ -30,6 +30,7 @@ cd build
 cmake .. && make -j
 sudo make install
 ```
+Then edit the last two digits of `lidar_ip` in `scripts/mid360_config.json` based on the last two digits of your Livox lidar serial number.
 
 Install v4l2 tool:
 ```bash

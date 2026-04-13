@@ -68,3 +68,7 @@ User=root
 [Install]
 WantedBy=multi-user.target
 ```
+Enable the service on boot:
+```
+systemctl enable mystartup.service
+```

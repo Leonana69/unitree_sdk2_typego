@@ -198,6 +198,14 @@ public:
         // std::cout << "IMU rpy: " << high_state.imu_state().rpy()[0] << ", " << high_state.imu_state().rpy()[1] << ", " << high_state.imu_state().rpy()[2] << std::endl;
     };
 
+    ExecutionResult hello() {
+        if (sport_client.Hello() != 0) {
+            std::cerr << "Failed to send hello command." << std::endl;
+            return {ExecutionStatus::ERROR, "Failed to send hello command."};
+        }
+        return {ExecutionStatus::SUCCESS, ""};
+    }
+
     ExecutionResult stand_down() {
         if (sport_client.StandDown() != 0) {
             std::cerr << "Failed to send stand down command." << std::endl;
@@ -424,6 +432,7 @@ int main(int argc, char **argv) {
                 return rc.rotate(delta_rad, timeout);
             }},
             {"stand_up", [body, &rc]() { return rc.stand_up(); }},
+            {"shake_hand", [body, &rc]() { return rc.hello(); }},
             {"stand_down", [body, &rc]() { return rc.stand_down(); }},
             {"nav", [body, &rc]() {
                 double vx = body["vx"].d();
